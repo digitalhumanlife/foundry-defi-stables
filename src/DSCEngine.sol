@@ -25,6 +25,7 @@
 
 pragma solidity ^0.8.18;
 
+import {console} from "forge-std/Test.sol";
 import {DecentralizedStableCoin} from "../src/DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
@@ -154,7 +155,7 @@ contract DSCEngine is ReentrancyGuard {
     /**
      * @notice follows CEI(Checks Effects Interactions)
      * @param amountDscToMint The amount of DSC to mint
-     * @notice a user must have more collateralvalue than the minimum threshold
+     * @notice a user must have more collateral value than the minimum threshold
      */
     function mintDsc(uint256 amountDscToMint) public moreThanZero(amountDscToMint) nonReentrant {
         s_dscMinted[msg.sender] += amountDscToMint;
@@ -262,6 +263,13 @@ contract DSCEngine is ReentrancyGuard {
      */
     function _burnDsc(uint256 amountDscToBurn, address onBehalfOf, address dscFrom) private {
         s_dscMinted[onBehalfOf] -= amountDscToBurn;
+
+        console.log("onBehalfOf: ", onBehalfOf);
+        console.log("dscFrom: ", dscFrom);
+        console.log("addressThis: ", address(this));
+
+        console.log("allow: ", i_dsc.allowance(dscFrom, address(this)));
+
         bool success = i_dsc.transferFrom(dscFrom, address(this), amountDscToBurn);
         if (!success) {
             revert DSCEngine__TransferFailed();
@@ -296,6 +304,11 @@ contract DSCEngine is ReentrancyGuard {
     function _healthFactor(address user) private view returns (uint256) {
         //we need: 1. total DSC minted, 2. total collateral VALUE
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
+
+        console.log("totalDscMinted: ", totalDscMinted);
+        console.log("collateralValueInUsd: ", collateralValueInUsd);
+
+        if (totalDscMinted == 0) return type(uint256).max;
         uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
         return (collateralAdjustedForThreshold * ETH_PRECISION / totalDscMinted);
     }
@@ -304,6 +317,8 @@ contract DSCEngine is ReentrancyGuard {
     // 2. if not, revert
     function _revertIfHealthFactorIsBroken(address user) internal view {
         uint256 userHealthFactor = _healthFactor(user);
+        console.log("userHealthFactor: ", userHealthFactor);
+        console.log("MIN_HEALTHFACTOR: ", MIN_HEALTH_FACTOR);
         if (userHealthFactor < MIN_HEALTH_FACTOR) {
             revert DSCEngine__BreaksHealthFactor(userHealthFactor);
         }
@@ -338,5 +353,20 @@ contract DSCEngine is ReentrancyGuard {
         // 1ETH = $1000
         // The returned value from CL is 1000 * 1e8 so in order to change the value in WEI, we need to multiply by 1e10
         return ((amount * uint256(price) * ADDITIONAL_FEED_PRECISION) / ETH_PRECISION); //should not divide by 1e18 because we want to keep the precision??
+    }
+
+    function getAccountInformation(address user)
+        external
+        view
+        returns (uint256 totalDscMinted, uint256 collateralValueInUsd)
+    {
+        (totalDscMinted, collateralValueInUsd) = _getAccountInformation(user);
+    }
+
+    function calculateHealthFactor(address user, uint256 expectedTotalMintedDsc) external view returns (uint256) {
+        //we need: 1. total DSC minted, 2. total collateral VALUE
+        (, uint256 collateralValueInUsd) = _getAccountInformation(user);
+        uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
+        return (collateralAdjustedForThreshold * ETH_PRECISION / expectedTotalMintedDsc);
     }
 }
