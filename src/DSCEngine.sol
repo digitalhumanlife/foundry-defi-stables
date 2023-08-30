@@ -30,6 +30,7 @@ import {DecentralizedStableCoin} from "../src/DecentralizedStableCoin.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {AggregatorV3Interface} from "@chainlink/contracts/contracts/src/v0.8/interfaces/AggregatorV3Interface.sol";
+import {OracleLib} from "../src/Libraries/OracleLib.sol";
 
 /**
  * @title DSCEngine
@@ -63,6 +64,9 @@ contract DSCEngine is ReentrancyGuard {
     error DSCEngine__MintFailed();
     error DSCEngine__HealthFactorOk();
     error DSCEngine__HealthFactorNotImproved();
+
+    // Types
+    using OracleLib for AggregatorV3Interface;
 
     // State Variable
     uint256 private constant ADDITIONAL_FEED_PRECISION = 1e10;
@@ -264,11 +268,11 @@ contract DSCEngine is ReentrancyGuard {
     function _burnDsc(uint256 amountDscToBurn, address onBehalfOf, address dscFrom) private {
         s_dscMinted[onBehalfOf] -= amountDscToBurn;
 
-        console.log("onBehalfOf: ", onBehalfOf);
-        console.log("dscFrom: ", dscFrom);
-        console.log("addressThis: ", address(this));
+        // console.log("onBehalfOf: ", onBehalfOf);
+        // console.log("dscFrom: ", dscFrom);
+        // console.log("addressThis: ", address(this));
 
-        console.log("allow: ", i_dsc.allowance(dscFrom, address(this)));
+        // console.log("allow: ", i_dsc.allowance(dscFrom, address(this)));
 
         bool success = i_dsc.transferFrom(dscFrom, address(this), amountDscToBurn);
         if (!success) {
@@ -305,8 +309,8 @@ contract DSCEngine is ReentrancyGuard {
         //we need: 1. total DSC minted, 2. total collateral VALUE
         (uint256 totalDscMinted, uint256 collateralValueInUsd) = _getAccountInformation(user);
 
-        console.log("totalDscMinted: ", totalDscMinted);
-        console.log("collateralValueInUsd: ", collateralValueInUsd);
+        // console.log("totalDscMinted: ", totalDscMinted);
+        // console.log("collateralValueInUsd: ", collateralValueInUsd);
 
         if (totalDscMinted == 0) return type(uint256).max;
         uint256 collateralAdjustedForThreshold = (collateralValueInUsd * LIQUIDATION_THRESHOLD) / LIQUIDATION_PRECISION;
@@ -317,8 +321,8 @@ contract DSCEngine is ReentrancyGuard {
     // 2. if not, revert
     function _revertIfHealthFactorIsBroken(address user) internal view {
         uint256 userHealthFactor = _healthFactor(user);
-        console.log("userHealthFactor: ", userHealthFactor);
-        console.log("MIN_HEALTHFACTOR: ", MIN_HEALTH_FACTOR);
+        // console.log("userHealthFactor: ", userHealthFactor);
+        // console.log("MIN_HEALTHFACTOR: ", MIN_HEALTH_FACTOR);
         if (userHealthFactor < MIN_HEALTH_FACTOR) {
             revert DSCEngine__BreaksHealthFactor(userHealthFactor);
         }
@@ -331,7 +335,7 @@ contract DSCEngine is ReentrancyGuard {
         // price of ETH (token) = $$$/ETH
         // eg. %2000/ETH -> $1000 = 0.5 ETH
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeed[token]);
-        (, int256 price,,,) = priceFeed.latestRoundData();
+        (, int256 price,,,) = priceFeed.staleCheckLatestRoundData();
         return (usdAmountInWei * ETH_PRECISION) / (uint256(price) * ADDITIONAL_FEED_PRECISION);
     }
 
@@ -349,7 +353,7 @@ contract DSCEngine is ReentrancyGuard {
 
     function getUsdValue(address token, uint256 amount) public view returns (uint256) {
         AggregatorV3Interface priceFeed = AggregatorV3Interface(s_priceFeed[token]);
-        (, int256 price,,,) = priceFeed.latestRoundData();
+        (, int256 price,,,) = priceFeed.staleCheckLatestRoundData();
         // 1ETH = $1000
         // The returned value from CL is 1000 * 1e8 so in order to change the value in WEI, we need to multiply by 1e10
         return ((amount * uint256(price) * ADDITIONAL_FEED_PRECISION) / ETH_PRECISION); //should not divide by 1e18 because we want to keep the precision??
@@ -370,8 +374,16 @@ contract DSCEngine is ReentrancyGuard {
         return (collateralAdjustedForThreshold * ETH_PRECISION / expectedTotalMintedDsc);
     }
 
+    function getCollateralTokenPriceFeed(address token) public view returns (address) {
+        return s_priceFeed[token];
+    }
+
     function getCollateralTokens() external view returns (address[] memory) {
         return s_collateralTokens;
+    }
+
+    function getEthPrecision() external pure returns (uint256) {
+        return ETH_PRECISION;
     }
 
     function getSingleCollateralBalanceOfUser(address user, address token) external view returns (uint256) {
